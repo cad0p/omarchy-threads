@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "cad0p.thread-center",
+  "name": "Threads",
+  "version": "0.1.0",
+  "author": "cad0p",
+  "license": "MIT",
+  "description": "Notification center with true per-conversation grouping, built as a passive session-bus observer",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Threads",
+    "description": "Notification center grouped by conversation",
+    "category": "System",
+    "defaultSection": "right",
+    "allowMultiple": false
+  }
+}

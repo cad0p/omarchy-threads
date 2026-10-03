@@ -1,0 +1,307 @@
+#!/usr/bin/env bash
+#
+# Watches the session bus for notification traffic and streams one JSON
+# event per line on stdout. Passive: it never owns org.freedesktop.Notifications
+# and never talks to the daemon, so it runs harmlessly beside Omarchy's stock
+# service — or any other daemon.
+#
+# Events:
+#   {"event":"notify","cookie":N,"id":0,"replacesId":R,"app":...,"appIcon":...,
+#    "summary":...,"body":...,"urgency":1,"actions":[...],"hints":{...},
+#    "icon":...,"sender":":1.23","senderExe":"/usr/bin/...","silenced":bool,
+#    "timestamp":ms}
+#   `icon` is a durable per-host copy of the best available source artwork
+#   (empty when none); see the icon block below.
+#   {"event":"id","cookie":N,"id":X}
+#
+# The Notify method_call carries the full hint table (conversation ids from
+# chat apps live there); the daemon's method_return that pairs with it by
+# reply_cookie carries the id. The id starts at 0 and is backfilled by the
+# panel when the return arrives.
+#
+# Usage:
+#   thread-watch              monitor the session bus (default)
+#   thread-watch --parse      read busctl --json=short lines from stdin and
+#                             emit parsed events (used by tests)
+set -uo pipefail
+
+command -v jq >/dev/null 2>&1 || { echo "thread-watch: jq is required" >&2; exit 1; }
+
+dnd_state() {
+  local state
+  state=$(omarchy-shell notifications isDnd 2>/dev/null || omarchy-shell notifications dndState 2>/dev/null || true)
+  [[ $state == on ]] && echo true || echo false
+}
+
+# A notification's app_name is sender-supplied data, not an identity. Resolve
+# the D-Bus sender to its process executable so the archive can carry a real
+# origin; grouping only, so a failed resolution is not fatal.
+sender_executable() {
+  local sender=$1 pid
+  [[ $sender =~ ^:[0-9]+\.[0-9]+$ ]] || return 0
+  pid=$(busctl --user call org.freedesktop.DBus /org/freedesktop/DBus \
+    org.freedesktop.DBus GetConnectionUnixProcessID s "$sender" 2>/dev/null |
+    awk '$1 == "u" { print $2; exit }')
+  [[ $pid =~ ^[0-9]+$ ]] || return 0
+  readlink -f -- "/proc/$pid/exe" 2>/dev/null || true
+}
+
+NOTIFY_JQ='
+  def clip($n): if type == "string" then .[0:$n] else "" end;
+  def hintval: if type == "object" and has("data") then .data else . end;
+  (.payload.data // []) as $d
+  | (if ($d[6] | type) == "object" then ($d[6].data? // $d[6]) else {} end) as $hraw
+  | (if ($hraw | type) == "object" then
+       ($hraw | to_entries
+        | map(.value = (.value | hintval)
+              | select((.value | type) == "string" or (.value | type) == "number" or (.value | type) == "boolean")
+              | .value = (if (.value | type) == "string" then (.value | .[0:200]) else .value end))
+        | from_entries)
+     else {} end) as $hints
+  | (if ($d[1] | type) == "number" then $d[1] else 0 end) as $replaces
+  | {
+      event: "notify",
+      cookie: (.cookie // 0),
+      id: 0,
+      replacesId: $replaces,
+      app: ($d[0] | clip(200)),
+      appIcon: (if ($d[2] | clip(1000)) != "" then ($d[2] | clip(1000))
+                else ($hints["image-path"] // "" | clip(1000)) end),
+      summary: ($d[3] | clip(2000)),
+      body: ($d[4] | clip(8000)),
+      urgency: ($hints.urgency // 1),
+      actions: (if ($d[5] | type) == "array" then $d[5] else [] end),
+      hints: $hints,
+      sender: $sender,
+      senderExe: $senderExe,
+      silenced: $silenced,
+      timestamp: (((."timestamp-realtime" // 0) / 1000) | floor)
+    }
+'
+
+# ---------------------------------------------------------------------------
+# Durable per-source icons
+#
+# A Chromium-family web notification points appIcon at the browser's badge in
+# a temporary scoped_dir and, when there is site artwork, at icon.png in that
+# same doomed directory; both vanish when the notification closes. Resolve a
+# stable copy instead: the first URL host in the notification text names the
+# source, and the best of (image-path hint, installed web app, non-browser
+# appIcon) is copied into the plugin's state dir, one file per host.
+# ---------------------------------------------------------------------------
+
+ICON_FIELDS_JQ='
+  def first_url:
+    if type == "string" then (match("https?://[^\\s]+") | .string) // empty else empty end;
+  def host_of:
+    sub("^https?://"; "")
+    | (split("/")[0] // "")
+    | gsub("[^A-Za-z0-9._-]+$"; "")
+    | (split("@")[-1] // "")
+    | (split(":")[0] // "");
+  ((.body | first_url) // (.summary | first_url) // "") as $url
+  | [($url | host_of),
+     (if (.hints["image-path"] | type) == "string" then .hints["image-path"] else "" end),
+     (if (.appIcon | type) == "string" then .appIcon else "" end)]
+  | .[] | @base64
+'
+
+icon_cache_dir() {
+  printf '%s' "${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/thread-center/icons"
+}
+
+slug_for_host() {
+  printf '%s' "${1,,}" | sed 's/[^a-z0-9._-]\{1,\}/-/g'
+}
+
+desktop_icon_for_host() { # <host> -> an existing absolute Icon= from a matching app
+  local host=${1,,} name icon label file lower_name
+  local -a parts=() labels=()
+  local i n
+  IFS=. read -r -a parts <<< "$host"
+  n=${#parts[@]}
+  # web.whatsapp.com -> whatsapp: the label before the TLD is the brand and
+  # is tried first, the remaining labels are the fallback.
+  if (( n >= 2 )); then
+    label=${parts[n - 2]}
+    if (( ${#label} >= 3 )) && [[ $label != www && $label != app && $label != web && $label != my && $label != m && $label != com ]]; then
+      labels+=("$label")
+    fi
+  fi
+  for ((i = 0; i < n; i++)); do
+    (( i == n - 2 )) && continue
+    label=${parts[i]}
+    (( ${#label} >= 3 )) || continue
+    case $label in
+      www|app|web|my|m|com) continue ;;
+    esac
+    labels+=("$label")
+  done
+  [[ ${#labels[@]} -gt 0 ]] || return 0
+  for label in "${labels[@]}"; do
+    for file in "$HOME"/.local/share/applications/*.desktop; do
+      [[ -f $file ]] || continue
+      name=$(sed -n 's/^Name=//p' "$file" | head -n 1)
+      [[ -n $name ]] || continue
+      lower_name=$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' ' ')
+      # The brand is the *first* word: "WhatsApp Web" answers for whatsapp,
+      # while a generic word later in a name must not ("Proton Mail" cannot
+      # answer for mail.google.com).
+      read -r first_word _ <<< "$lower_name"
+      [[ $first_word == "$label" ]] || continue
+      # Only an installed web app answers for a host. A browser entry's Name
+      # can carry the same label (Google Chrome for mail.google.com), and the
+      # browser's icon is the badge this resolution exists to avoid.
+      grep -q -- '--app-id=' "$file" || continue
+      icon=$(sed -n 's/^Icon=//p' "$file" | head -n 1)
+      if [[ $icon == /* && -f $icon ]]; then
+        printf '%s' "$icon"
+        return 0
+      fi
+    done
+  done
+  return 0
+}
+
+copy_icon_to_cache() { # <src> <cache-path>
+  local src=$1 cache=$2 dir tmp
+  dir=$(dirname -- "$cache")
+  mkdir -p -- "$dir" 2>/dev/null || return 1
+  tmp=$(mktemp -- "$dir/.tmp.XXXXXX") || return 1
+  if timeout 2 head -c 262144 -- "$src" > "$tmp" 2>/dev/null && [[ -s $tmp ]]; then
+    mv -f -- "$tmp" "$cache" 2>/dev/null || { rm -f -- "$tmp"; return 1; }
+    return 0
+  fi
+  rm -f -- "$tmp"
+  return 1
+}
+
+# Prints the durable cache path for the event, or nothing when the event has
+# no resolvable host or source. Every failure degrades to "no icon": the
+# caller must still emit the event.
+resolve_icon() { # <parsed event JSON>
+  local line=$1 fields=() host slug image_path app_icon cache src=""
+  mapfile -t -n 3 fields < <(jq -r "$ICON_FIELDS_JQ" <<<"$line" 2>/dev/null)
+  [[ ${#fields[@]} -eq 3 ]] || return 0
+  host=$(printf '%s' "${fields[0]}" | base64 -d 2>/dev/null) || true
+  image_path=$(printf '%s' "${fields[1]}" | base64 -d 2>/dev/null) || true
+  app_icon=$(printf '%s' "${fields[2]}" | base64 -d 2>/dev/null) || true
+  [[ -n $host ]] || return 0
+  slug=$(slug_for_host "$host")
+  [[ -n $slug ]] || return 0
+  cache=$(icon_cache_dir)/"$slug.png"
+  if [[ -f $cache ]]; then
+    printf '%s' "$cache"
+    return 0
+  fi
+  if [[ -n $image_path && -f $image_path ]]; then
+    src=$image_path
+  else
+    src=$(desktop_icon_for_host "$host")
+    if [[ -z $src && -n $app_icon && -f $app_icon && $app_icon != /tmp/org.chromium.* ]]; then
+      src=$app_icon
+    fi
+  fi
+  [[ -n $src ]] || return 0
+  copy_icon_to_cache "$src" "$cache" || return 0
+  printf '%s' "$cache"
+}
+
+parse_line() {
+  local line=$1 sender sender_exe silenced
+  [[ $line == \{* ]] || return 0
+  # Anything on the bus can send a notification of any size. Beyond 256 KB
+  # the line is dropped unread rather than shipped through jq.
+  (( ${#line} > 262144 )) && return 0
+
+  if [[ $line == *'"member":"Notify"'* ]]; then
+    silenced=$(dnd_state)
+    sender=$(jq -r '.sender // ""' <<<"$line" 2>/dev/null)
+    sender_exe=$(sender_executable "$sender")
+    local event icon
+    event=$(jq -c --argjson silenced "$silenced" --arg sender "$sender" --arg senderExe "$sender_exe" \
+      "$NOTIFY_JQ" <<<"$line" 2>/dev/null) || return 0
+    [[ -n $event ]] || return 0
+    icon=$(resolve_icon "$event")
+    jq -c --arg icon "${icon:-}" '.icon = $icon' <<<"$event" 2>/dev/null || printf '%s\n' "$event"
+    return 0
+  fi
+
+  if [[ $line == *'"reply_cookie"'* ]]; then
+    # A cookie is unique per connection, not globally (every notify-send run
+    # is a fresh connection that starts at cookie 9), so the id must be paired
+    # back to its call by (caller unique name, cookie). On a method_return the
+    # caller is `destination`.
+    jq -c '
+      select(.reply_cookie != null
+             and (.payload.type // "") == "u"
+             and ((.payload.data[0] // null) | type) == "number")
+      | {event: "id", sender: (.destination // ""), cookie: .reply_cookie, id: .payload.data[0]}
+    ' <<<"$line" 2>/dev/null
+  fi
+}
+
+if [[ ${1:-} == "--parse" ]]; then
+  while IFS= read -r line; do parse_line "$line"; done
+  exit 0
+fi
+
+if [[ ${1:-} == "-h" || ${1:-} == "--help" ]]; then
+  sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'
+  exit 0
+fi
+
+command -v busctl >/dev/null 2>&1 || { echo "thread-watch: busctl is required" >&2; exit 1; }
+
+# The shell can instantiate the widget twice (stock startup does this for
+# every first-party bar widget too — see the duplicate-IpcHandler warnings),
+# and each instance launches a watcher. A BLOCKING flock keeps one streaming
+# and puts the duplicate to sleep until the holder exits, with no CPU cost
+# and no retry loop. Orphans cannot hold the lock for long: the reader below
+# exits within 5s of its shell dying, which hands the lock to whoever waits.
+lock_file="${XDG_RUNTIME_DIR:-/tmp}/thread-center-watch.lock"
+if command -v flock >/dev/null 2>&1; then
+  exec 8>"$lock_file"
+  flock 8
+fi
+
+# A watcher must not outlive the shell that started it. An orphan keeps its
+# busctl monitor (and its stdout pipe into a process that no longer exists),
+# and a replacement watcher would then compete with a zombie for the archive.
+# The parent is checked between reads rather than by a signal: -t bounds the
+# wait so an idle bus still gets checked, an exit state of Z means the shell
+# died but has not been reaped yet, and a return above 128 is the timeout —
+# anything else is busctl's EOF and ends the loop.
+parent=$PPID
+
+# Both matches in one monitor process: the Notify calls, and the daemon's
+# replies (busctl resolves the bus name to its current unique owner). Reading
+# from a process substitution keeps the loop in this shell so a signal kills
+# busctl with the script. fd 8 (the lock) is closed inside busctl on purpose:
+# a child that inherited it would keep the flock alive after this watcher
+# dies, and the waiting duplicate would never take over.
+exec 3< <(busctl --user monitor --json=short 8>&- \
+  --match "type='method_call',interface='org.freedesktop.Notifications',member='Notify'" \
+  --match "type='method_return',sender='org.freedesktop.Notifications'" 2>/dev/null)
+# A save of this script must reach the running watcher: edits made through the
+# repo checkout do not fire the plugin-dir watcher, and the flock would keep
+# the stale process (and its old code) alive forever. Exiting hands the lock
+# to the panel's watcherRestart timer, which starts the new code.
+watch_self=$(readlink -f -- "$0" 2>/dev/null || printf '%s' "$0")
+self_mtime=$(stat -c %Y -- "$watch_self" 2>/dev/null || echo 0)
+
+while true; do
+  parent_state=$(awk '{print $3}' "/proc/$parent/stat" 2>/dev/null) || break
+  [[ $parent_state == Z ]] && break
+  if (( self_mtime != 0 )); then
+    now_mtime=$(stat -c %Y -- "$watch_self" 2>/dev/null || echo "$self_mtime")
+    [[ $now_mtime == "$self_mtime" ]] || break
+  fi
+  rc=0
+  IFS= read -t 5 -r line <&3 || rc=$?
+  if (( rc == 0 )); then
+    parse_line "$line"
+  elif (( rc <= 128 )); then
+    break
+  fi
+done

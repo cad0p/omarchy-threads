@@ -20,5 +20,6 @@ All notable changes to this project will be documented in this file.
 ### 📚 Documentation
 
 - Recommend the omapager fork until the PRs land upstream (closes #10)
+- Add the marketplace preview and uninstall instructions (closes #14)
 
 

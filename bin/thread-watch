@@ -351,7 +351,11 @@ command -v busctl >/dev/null 2>&1 || { echo "thread-watch: busctl is required" >
 # and puts the duplicate to sleep until the holder exits, with no CPU cost
 # and no retry loop. Orphans cannot hold the lock for long: the reader below
 # exits within 5s of its shell dying, which hands the lock to whoever waits.
-lock_file="${XDG_RUNTIME_DIR:-/tmp}/thread-center-watch.lock"
+# XDG_RUNTIME_DIR is the session manager's owner-only runtime directory. A
+# shared /tmp fallback would let another local user race the lock name, and
+# the watcher only ever runs inside the user session where it is set.
+: "${XDG_RUNTIME_DIR:?thread-watch: XDG_RUNTIME_DIR is required}"
+lock_file="$XDG_RUNTIME_DIR/thread-center-watch.lock"
 if command -v flock >/dev/null 2>&1; then
   exec 8>"$lock_file"
   flock 8

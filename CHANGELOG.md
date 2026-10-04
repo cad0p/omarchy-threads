@@ -11,5 +11,6 @@ All notable changes to this project will be documented in this file.
 ### 🐛 Bug Fixes
 
 - Focus the web app window instead of reopening its origin (closes #5)
+- Focus app-id-shaped PWA windows via the derived wmClass (closes #8)
 
 

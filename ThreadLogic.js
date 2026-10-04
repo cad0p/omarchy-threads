@@ -320,11 +320,14 @@ function sourceHost(entry) {
 // True when the entry's durable link is nothing but the web origin recorded
 // in `source`: Chromium sends the page origin as a lead paragraph, so
 // opening that link only reloads the PWA at its root. A link with a path or
-// query is a real deep link and must still open normally.
+// query is a real deep link and must still open normally. Rows archived
+// before the watcher recorded `source` still name their web app through a
+// bare-origin link, so the host is derived from the link when needed.
 function isWebOrigin(entry) {
-  var host = sourceHost(entry)
-  if (!host) return false
   var link = String((entry && entry.link) || "") || firstLink(entry)
+  var host = sourceHost(entry)
+  if (!host && link) host = hostOf(link)
+  if (!host) return false
   if (!link) return true
   if (hostOf(link) !== host) return false
   return /^[a-z][a-z0-9+.-]*:\/\/[^/?#]+\/?$/i.test(link)
@@ -343,11 +346,34 @@ function focusTargets(entry) {
     var target = String(value || "")
     if (target && targets.indexOf(target) < 0) targets.push(target)
   }
-  add(sourceHost(entry))
+  // Older rows predate `source`; the archived link's host still names the
+  // sending web app, so it can focus the PWA window.
+  add(sourceHost(entry) || hostOf(String((entry && entry.link) || "") || firstLink(entry)))
   add(entry && entry.wmClass)
   add(entry && entry.startupWmClass)
   add(entry && (entry.appId || entry.app))
   return targets
+}
+
+// Rows archived before the watcher recorded focus classes still know their
+// web host (from `source` or the archived link). Borrow the focus classes
+// from a sibling row for the same host, so clicking an old notification
+// focuses the PWA instead of falling back to the browser window. A different
+// host never lends its classes, so a WhatsApp row can't focus Proton Mail.
+function borrowFocus(entry, entries) {
+  if (!entry || entry.wmClass || entry.startupWmClass) return entry
+  var host = sourceHost(entry) || hostOf(String(entry.link || "") || firstLink(entry))
+  if (!host || !Array.isArray(entries)) return entry
+  for (var i = 0; i < entries.length; i++) {
+    var peer = entries[i]
+    if (!peer || peer === entry || !peer.wmClass) continue
+    if (sourceHost(peer) !== host) continue
+    return Object.assign({}, entry, {
+      wmClass: peer.wmClass,
+      startupWmClass: peer.startupWmClass || ""
+    })
+  }
+  return entry
 }
 
 function plainBody(body) {
@@ -423,6 +449,7 @@ if (typeof module !== "undefined" && module.exports) {
     sourceHost: sourceHost,
     isWebOrigin: isWebOrigin,
     focusTargets: focusTargets,
+    borrowFocus: borrowFocus,
     applyEvent: applyEvent,
     applyId: applyId,
     prune: prune,

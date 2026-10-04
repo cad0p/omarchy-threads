@@ -200,9 +200,12 @@ test("isWebOrigin is true only for a bare origin link", () => {
   // A real per-conversation deep link must keep opening normally.
   assert.strictEqual(T.isWebOrigin({ source: "web.whatsapp.com", link: "https://web.whatsapp.com/chats/42" }), false)
   assert.strictEqual(T.isWebOrigin({ source: "mail.proton.me", link: "https://mail.proton.me/u/0/inbox" }), false)
-  // A link on a different host, or no source at all, is not a web origin.
+  // A link on a different host is not this sender's web origin.
   assert.strictEqual(T.isWebOrigin({ source: "web.whatsapp.com", link: "https://example.com/" }), false)
-  assert.strictEqual(T.isWebOrigin({ link: "https://web.whatsapp.com/" }), false)
+  // Older rows carry no `source`; a bare origin still names the web app.
+  assert.strictEqual(T.isWebOrigin({ link: "https://web.whatsapp.com/" }), true)
+  assert.strictEqual(T.isWebOrigin({ body: '<a href="https://web.whatsapp.com/">web.whatsapp.com</a>' }), true)
+  assert.strictEqual(T.isWebOrigin({ link: "https://mail.proton.me/u/0/inbox" }), false)
   // A web sender whose archived link is missing is still a web sender.
   assert.strictEqual(T.isWebOrigin({ source: "web.whatsapp.com" }), true)
   assert.strictEqual(T.isWebOrigin(null), false)
@@ -215,6 +218,10 @@ test("focusTargets tries host, derived wmClass, StartupWMClass, then app id", ()
   assert.deepStrictEqual(T.focusTargets({ source: "web.whatsapp.com", app: "Helium" }),
     ["web.whatsapp.com", "Helium"])
   assert.deepStrictEqual(T.focusTargets({ app: "Slack" }), ["Slack"])
+  // Rows without `source` still focus the link's host first.
+  assert.deepStrictEqual(T.focusTargets({ link: "https://mail.proton.me/" }), ["mail.proton.me"])
+  assert.deepStrictEqual(T.focusTargets({ link: "https://mail.proton.me/u/0/inbox", app: "Helium" }),
+    ["mail.proton.me", "Helium"])
   assert.deepStrictEqual(T.focusTargets({ source: "web.whatsapp.com", appId: "web.whatsapp.com" }),
     ["web.whatsapp.com"])
   assert.deepStrictEqual(T.focusTargets({ source: "web.whatsapp.com" }), ["web.whatsapp.com"])
@@ -245,6 +252,33 @@ test("focusTargets tries host, derived wmClass, StartupWMClass, then app id", ()
   assert.deepStrictEqual(T.focusTargets({
     source: "web.whatsapp.com", wmClass: "", startupWmClass: "", appId: ""
   }), ["web.whatsapp.com"])
+})
+
+test("borrowFocus fills focus classes from a same-host sibling", () => {
+  const old = { key: "a", link: "https://mail.proton.me/", app: "Helium" }
+  const fresh = { key: "b", source: "mail.proton.me",
+    wmClass: "chrome-jnpecgipniidlgicjocehkhajgdnjekh-Default",
+    startupWmClass: "crx_jnpecgipniidlgicjocehkhajgdnjekh" }
+  // An old row takes the classes of a same-host sibling...
+  assert.deepStrictEqual(T.borrowFocus(old, [fresh]), {
+    key: "a", link: "https://mail.proton.me/", app: "Helium",
+    wmClass: "chrome-jnpecgipniidlgicjocehkhajgdnjekh-Default",
+    startupWmClass: "crx_jnpecgipniidlgicjocehkhajgdnjekh"
+  })
+  // ...and the borrowed entry focuses the PWA class before the browser app.
+  assert.deepStrictEqual(T.focusTargets(T.borrowFocus(old, [fresh])), [
+    "mail.proton.me",
+    "chrome-jnpecgipniidlgicjocehkhajgdnjekh-Default",
+    "crx_jnpecgipniidlgicjocehkhajgdnjekh",
+    "Helium"
+  ])
+  // A row that already has classes is returned untouched.
+  assert.strictEqual(T.borrowFocus(fresh, [old]), fresh)
+  // A different host never lends its classes.
+  const whatsapp = { key: "c", source: "web.whatsapp.com", wmClass: "chrome-hnpf-Default" }
+  assert.strictEqual(T.borrowFocus(old, [whatsapp]), old)
+  assert.strictEqual(T.borrowFocus(null, [fresh]), null)
+  assert.strictEqual(T.borrowFocus(old, null), old)
 })
 
 test("applyEvent carries source, wmClass and startupWmClass", () => {

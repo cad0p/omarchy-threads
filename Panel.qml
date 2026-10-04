@@ -33,8 +33,9 @@ Panel {
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
-  // Injected by the shell's plugin loader.
-  property string omarchyPath: ""
+  // The shell does not inject this into user plugins; read it from the
+  // environment the way first-party plugins do (see Emojis.qml/Clipboard.qml).
+  property string omarchyPath: Quickshell.env("OMARCHY_PATH")
 
   // Resolved against this QML file so the plugin works from any install
   // location (user plugin dir, symlinked dev checkout, ...).
@@ -143,9 +144,13 @@ Panel {
   // first, then the app id. Each step only runs when the previous one found
   // no window. Returns false when the entry has nothing to focus.
   function focusEntryWindow(entry) {
-    var targets = ThreadLogic.focusTargets(entry)
-    if (targets.length === 0 || !omarchyPath) return false
-    var bin = Util.shellQuote(omarchyPath + "/bin/omarchy-hyprland-focus-app")
+    // Rows archived before the watcher recorded focus classes borrow them
+    // from a same-host sibling, so old clicks reach the PWA too.
+    var targets = ThreadLogic.focusTargets(ThreadLogic.borrowFocus(entry, entries))
+    if (targets.length === 0) return false
+    // Never bail on the path alone: the helper is also on PATH via
+    // /usr/share/omarchy/bin, so only "nothing to focus" stops the attempt.
+    var bin = Util.shellQuote(omarchyPath ? omarchyPath + "/bin/omarchy-hyprland-focus-app" : "omarchy-hyprland-focus-app")
     Util.execDetached(targets.map(function(target) {
       return bin + " " + Util.shellQuote(target)
     }).join(" || "))

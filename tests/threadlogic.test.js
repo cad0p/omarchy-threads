@@ -195,7 +195,7 @@ test("isWebOrigin is true only for a bare origin link", () => {
   assert.strictEqual(T.isWebOrigin(null), false)
 })
 
-test("focusTargets tries the source host before the app id", () => {
+test("focusTargets tries host, derived wmClass, StartupWMClass, then app id", () => {
   assert.deepStrictEqual(
     T.focusTargets({ source: "web.whatsapp.com", appId: "Helium" }),
     ["web.whatsapp.com", "Helium"])
@@ -207,6 +207,48 @@ test("focusTargets tries the source host before the app id", () => {
   assert.deepStrictEqual(T.focusTargets({ source: "web.whatsapp.com" }), ["web.whatsapp.com"])
   assert.deepStrictEqual(T.focusTargets({}), [])
   assert.deepStrictEqual(T.focusTargets(null), [])
+
+  // App-id-shaped PWA (Proton Mail): the derived live window class is tried
+  // before the declared crx_ StartupWMClass and before the app id.
+  assert.deepStrictEqual(T.focusTargets({
+    source: "mail.proton.me",
+    wmClass: "chrome-jnpecgipniidlgicjocehkhajgdnjekh-Default",
+    startupWmClass: "crx_jnpecgipniidlgicjocehkhajgdnjekh",
+    appId: "Helium"
+  }), [
+    "mail.proton.me",
+    "chrome-jnpecgipniidlgicjocehkhajgdnjekh-Default",
+    "crx_jnpecgipniidlgicjocehkhajgdnjekh",
+    "Helium"
+  ])
+
+  // Duplicates collapse across fields and empty slots are skipped.
+  assert.deepStrictEqual(T.focusTargets({
+    source: "mail.proton.me",
+    wmClass: "mail.proton.me",
+    startupWmClass: "crx_x",
+    app: "crx_x"
+  }), ["mail.proton.me", "crx_x"])
+  assert.deepStrictEqual(T.focusTargets({
+    source: "web.whatsapp.com", wmClass: "", startupWmClass: "", appId: ""
+  }), ["web.whatsapp.com"])
+})
+
+test("applyEvent carries source, wmClass and startupWmClass", () => {
+  const list = T.applyEvent([], {
+    timestamp: 1000, cookie: 1, app: "Helium", source: "mail.proton.me",
+    wmClass: "chrome-jnpecgipniidlgicjocehkhajgdnjekh-Default",
+    startupWmClass: "crx_jnpecgipniidlgicjocehkhajgdnjekh"
+  }, { now: 1000 })
+  assert.strictEqual(list[0].source, "mail.proton.me")
+  assert.strictEqual(list[0].wmClass, "chrome-jnpecgipniidlgicjocehkhajgdnjekh-Default")
+  assert.strictEqual(list[0].startupWmClass, "crx_jnpecgipniidlgicjocehkhajgdnjekh")
+  assert.deepStrictEqual(T.focusTargets(list[0]), [
+    "mail.proton.me",
+    "chrome-jnpecgipniidlgicjocehkhajgdnjekh-Default",
+    "crx_jnpecgipniidlgicjocehkhajgdnjekh",
+    "Helium"
+  ])
 })
 
 test("groupRows buckets by thread, newest thread first, counting unread", () => {

@@ -331,14 +331,22 @@ function isWebOrigin(entry) {
 }
 
 // Ordered focus patterns for the sending window: the web source host first
-// (it matches the PWA window class, e.g. web.whatsapp.com for
-// chrome-web.whatsapp.com__-Default), then the app id as the second try.
+// (it matches host-shaped PWA window classes, e.g. web.whatsapp.com for
+// chrome-web.whatsapp.com__-Default), then the app's derived window class
+// (chrome-<appid>-Default for Chromium PWAs, whose desktop StartupWMClass is
+// a crx_ name that does not match the live window), then the declared
+// StartupWMClass, then the app id as the last resort. Duplicates and empties
+// are dropped, so a target is tried at most once.
 function focusTargets(entry) {
   var targets = []
-  var host = sourceHost(entry)
-  var app = String((entry && (entry.appId || entry.app)) || "")
-  if (host) targets.push(host)
-  if (app && app !== host) targets.push(app)
+  function add(value) {
+    var target = String(value || "")
+    if (target && targets.indexOf(target) < 0) targets.push(target)
+  }
+  add(sourceHost(entry))
+  add(entry && entry.wmClass)
+  add(entry && entry.startupWmClass)
+  add(entry && (entry.appId || entry.app))
   return targets
 }
 

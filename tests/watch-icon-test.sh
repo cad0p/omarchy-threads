@@ -87,6 +87,12 @@ out=$(emit "$state1" "$line")
 check "existing cache wins over a new source" \
   "$state1/omarchy/thread-center/icons/web.whatsapp.com.png" "$(jq -r '.icon' <<<"$out")"
 cmp -s "$png" "$icon" || fail "cache was rewritten for an already-cached host"
+# The focus classes are cached beside the icon, so a cache hit still exports
+# the derived wmClass (and omits StartupWMClass when the entry declares none).
+check "cached icon still exports the derived wmClass" \
+  "chrome-hnpfjngllnobngcgfapefoaidbinmjnm-Default" "$(jq -r '.wmClass' <<<"$out")"
+check "no StartupWMClass declared means the field is absent" \
+  "null" "$(jq -r '.startupWmClass' <<<"$out")"
 
 # --- desktop match: no image-path, Name contains the host label --------------
 state2=$tmp/state2
@@ -111,16 +117,49 @@ out=$(emit "$state2" "$line")
 check "browser entry does not answer for a host label" "" "$(jq -r '.icon' <<<"$out")"
 
 # --- a generic token in another web app's name is not the brand --------------
+# Proton is also the app-id-shaped PWA fixture for the focus-class checks.
 cat > "$HOME/.local/share/applications/proton.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=Proton Mail
 Icon=$png
-Exec=/opt/helium-browser-bin/helium-wrapper --profile-directory=Default --app-id=jnpecgipniidlgicjocehkhajgdnjekho
+StartupWMClass=crx_jnpecgipniidlgicjocehkhajgdnjekh
+Exec=/opt/helium-browser-bin/helium-wrapper --profile-directory=Default --app-id=jnpecgipniidlgicjocehkhajgdnjekh
 EOF
 line=$(notify_line "Ping https://mail.google.com/mail/u/0" "Mail" "")
 out=$(emit "$state2" "$line")
 check "Proton Mail's token does not answer for mail.google.com" "" "$(jq -r '.icon' <<<"$out")"
+
+# --- app-id-shaped window class: derived wmClass + differing StartupWMClass --
+# The desktop entry declares crx_<app-id>, but the live window is
+# chrome-<app-id>-Default; both are exported and tried in that order.
+state6=$tmp/state6
+line=$(notify_line "New email https://mail.proton.me/u/0/inbox" "Proton Mail" "")
+out=$(emit "$state6" "$line")
+check "derived wmClass exported for an app-id-shaped class" \
+  "chrome-jnpecgipniidlgicjocehkhajgdnjekh-Default" "$(jq -r '.wmClass' <<<"$out")"
+check "StartupWMClass exported when it differs from wmClass" \
+  "crx_jnpecgipniidlgicjocehkhajgdnjekh" "$(jq -r '.startupWmClass' <<<"$out")"
+check "proton icon resolved from the matched entry" \
+  "$state6/omarchy/thread-center/icons/mail.proton.me.png" "$(jq -r '.icon' <<<"$out")"
+focus_sidecar=$state6/omarchy/thread-center/icons/mail.proton.me.png.focus
+[[ -f $focus_sidecar ]] || fail "focus sidecar missing after the fresh desktop match"
+
+# --- the cached icon answers from the sidecar, without a desktop scan --------
+line=$(notify_line "Second https://mail.proton.me/u/0/inbox" "Proton Mail" "$other")
+out=$(emit "$state6" "$line")
+check "cached icon still exports the derived wmClass" \
+  "chrome-jnpecgipniidlgicjocehkhajgdnjekh-Default" "$(jq -r '.wmClass' <<<"$out")"
+check "cached icon still exports StartupWMClass" \
+  "crx_jnpecgipniidlgicjocehkhajgdnjekh" "$(jq -r '.startupWmClass' <<<"$out")"
+
+# --- an icon cache from before sidecars existed is backfilled once -----------
+rm -f "$focus_sidecar"
+line=$(notify_line "Third https://mail.proton.me/u/0/inbox" "Proton Mail" "")
+out=$(emit "$state6" "$line")
+check "pre-sidecar icon cache is backfilled" \
+  "chrome-jnpecgipniidlgicjocehkhajgdnjekh-Default" "$(jq -r '.wmClass' <<<"$out")"
+[[ -f $focus_sidecar ]] || fail "sidecar was not rewritten for a pre-sidecar icon cache"
 
 # --- no URL in body or summary: no icon, and no cache dir created ------------
 state3=$tmp/state3
@@ -165,6 +204,12 @@ line=$(notify_line "Ping https://example.net/x" "X" "$png")
 out=$(emit "$blocked" "$line") || fail "event dropped when the cache dir was unwritable"
 check "unwritable cache dir still emits the event" "notify" "$(jq -r '.event' <<<"$out")"
 check "unwritable cache dir leaves icon empty" "" "$(jq -r '.icon' <<<"$out")"
+# The desktop match is independent of the artwork: focus metadata survives a
+# failed icon copy.
+line=$(notify_line "Ping https://mail.proton.me/u/0/inbox" "Proton Mail" "$png")
+out=$(emit "$blocked" "$line") || fail "event dropped for a host with a desktop match"
+check "wmClass survives an unwritable icon cache" \
+  "chrome-jnpecgipniidlgicjocehkhajgdnjekh-Default" "$(jq -r '.wmClass' <<<"$out")"
 
 # --- XDG_STATE_HOME unset falls back to HOME/.local/state --------------------
 line=$(notify_line "Ping https://status.example.org/incident" "Status" "$png")

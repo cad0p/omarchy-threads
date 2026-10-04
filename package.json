@@ -1,0 +1,19 @@
+{
+  "name": "omarchy-threads",
+  "version": "0.1.0",
+  "private": true,
+  "description": "An Omarchy notification center that groups by conversation, not by app.",
+  "keywords": [
+    "omarchy",
+    "quickshell",
+    "notifications",
+    "plugin",
+    "hyprland"
+  ],
+  "license": "MIT",
+  "author": "cad0p",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cad0p/omarchy-threads.git"
+  }
+}

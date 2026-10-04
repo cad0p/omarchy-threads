@@ -82,6 +82,29 @@ git -C ~/.config/omarchy/plugins/njpatel.omapager checkout integration
 omarchy restart shell
 ```
 
+## Uninstall
+
+```bash
+omarchy plugin remove cad0p.thread-center
+```
+
+That disables the widget and unlinks the plugin checkout (a cloned copy is
+deleted; a symlinked development checkout is only unlinked). The archived
+history is user state and stays behind — remove it too with:
+
+```bash
+rm -rf ~/.local/state/omarchy/thread-center
+```
+
+omapager is independent of Threads. If you also want to remove it, do that
+first, then re-enable the stock daemon (running both at once means two daemons
+fight over the notification bus):
+
+```bash
+omarchy plugin remove njpatel.omapager
+omarchy plugin enable omarchy.notifications
+```
+
 ## Usage
 
 Toggle the panel from the bar bell, or from a keybinding of your own:

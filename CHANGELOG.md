@@ -8,9 +8,17 @@ All notable changes to this project will be documented in this file.
 <!-- Add your curated release notes here. -->
 <!-- USER-EDITABLE SECTION END -->
 
+### 🚀 Features
+
+- Dismiss a conversation's live toasts with its thread (closes #12)
+
 ### 🐛 Bug Fixes
 
 - Focus the web app window instead of reopening its origin (closes #5)
 - Focus app-id-shaped PWA windows via the derived wmClass (closes #8)
+
+### 📚 Documentation
+
+- Recommend the omapager fork until the PRs land upstream (closes #10)
 
 

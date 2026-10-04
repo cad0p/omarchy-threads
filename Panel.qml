@@ -126,15 +126,30 @@ Panel {
     queueStore(["clear"])
   }
 
+  // Focus the sending window, trying each target in order: web source host
+  // first, then the app id. Each step only runs when the previous one found
+  // no window. Returns false when the entry has nothing to focus.
+  function focusEntryWindow(entry) {
+    var targets = ThreadLogic.focusTargets(entry)
+    if (targets.length === 0 || !omarchyPath) return false
+    var bin = Util.shellQuote(omarchyPath + "/bin/omarchy-hyprland-focus-app")
+    Util.execDetached(targets.map(function(target) {
+      return bin + " " + Util.shellQuote(target)
+    }).join(" || "))
+    return true
+  }
+
   function openLinkOrFocus(entry) {
     var link = String((entry && entry.link) || "") || ThreadLogic.firstLink(entry)
+    // A Chromium web notification's archived link is only the app origin
+    // (https://web.whatsapp.com/): opening it reloads the PWA at its root.
+    // Focus the sending window instead; real deep links still open below.
+    if (ThreadLogic.isWebOrigin(entry) && focusEntryWindow(entry)) return
     if (link) {
       Quickshell.execDetached(["xdg-open", link])
       return
     }
-    var app = String((entry && (entry.appId || entry.app)) || "")
-    if (!app || !omarchyPath) return
-    Util.execDetached(omarchyPath + "/bin/omarchy-hyprland-focus-app " + Util.shellQuote(app))
+    focusEntryWindow(entry)
   }
 
   // Prefer the sender's live "default" action: for Chromium web apps the

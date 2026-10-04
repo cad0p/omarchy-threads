@@ -166,6 +166,49 @@ test("canInvokeLive needs a daemon id and a default action", () => {
   assert.strictEqual(T.canInvokeLive(null), false)
 })
 
+test("sourceHost normalizes the watcher's web source field", () => {
+  assert.strictEqual(T.sourceHost({ source: "web.whatsapp.com" }), "web.whatsapp.com")
+  assert.strictEqual(T.sourceHost({ source: "https://User:pa%40ss@Web.WhatsApp.com:8443/chats/42" }), "web.whatsapp.com")
+  assert.strictEqual(T.sourceHost({ source: "mail.proton.me" }), "mail.proton.me")
+  assert.strictEqual(T.sourceHost({ source: "" }), "")
+  assert.strictEqual(T.sourceHost({}), "")
+  assert.strictEqual(T.sourceHost(null), "")
+})
+
+test("isWebOrigin is true only for a bare origin link", () => {
+  const whatsapp = {
+    source: "web.whatsapp.com",
+    link: "https://web.whatsapp.com/",
+    body: '<a href="https://web.whatsapp.com/">web.whatsapp.com</a>\nhello'
+  }
+  assert.strictEqual(T.isWebOrigin(whatsapp), true)
+  // Without a stored link the first link in the body is used.
+  assert.strictEqual(T.isWebOrigin({ source: "mail.proton.me", body: "https://mail.proton.me/" }), true)
+  // A real per-conversation deep link must keep opening normally.
+  assert.strictEqual(T.isWebOrigin({ source: "web.whatsapp.com", link: "https://web.whatsapp.com/chats/42" }), false)
+  assert.strictEqual(T.isWebOrigin({ source: "mail.proton.me", link: "https://mail.proton.me/u/0/inbox" }), false)
+  // A link on a different host, or no source at all, is not a web origin.
+  assert.strictEqual(T.isWebOrigin({ source: "web.whatsapp.com", link: "https://example.com/" }), false)
+  assert.strictEqual(T.isWebOrigin({ link: "https://web.whatsapp.com/" }), false)
+  // A web sender whose archived link is missing is still a web sender.
+  assert.strictEqual(T.isWebOrigin({ source: "web.whatsapp.com" }), true)
+  assert.strictEqual(T.isWebOrigin(null), false)
+})
+
+test("focusTargets tries the source host before the app id", () => {
+  assert.deepStrictEqual(
+    T.focusTargets({ source: "web.whatsapp.com", appId: "Helium" }),
+    ["web.whatsapp.com", "Helium"])
+  assert.deepStrictEqual(T.focusTargets({ source: "web.whatsapp.com", app: "Helium" }),
+    ["web.whatsapp.com", "Helium"])
+  assert.deepStrictEqual(T.focusTargets({ app: "Slack" }), ["Slack"])
+  assert.deepStrictEqual(T.focusTargets({ source: "web.whatsapp.com", appId: "web.whatsapp.com" }),
+    ["web.whatsapp.com"])
+  assert.deepStrictEqual(T.focusTargets({ source: "web.whatsapp.com" }), ["web.whatsapp.com"])
+  assert.deepStrictEqual(T.focusTargets({}), [])
+  assert.deepStrictEqual(T.focusTargets(null), [])
+})
+
 test("groupRows buckets by thread, newest thread first, counting unread", () => {
   const entries = [
     { key: "1", timestamp: 3000, app: "WhatsApp", threadKey: "wa|h|group-a", threadLabel: "Group A", summary: "hi" },

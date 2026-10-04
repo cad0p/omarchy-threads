@@ -16,6 +16,7 @@ All notable changes to this project will be documented in this file.
 
 - Focus the web app window instead of reopening its origin (closes #5)
 - Focus app-id-shaped PWA windows via the derived wmClass (closes #8)
+- Require XDG_RUNTIME_DIR for the watcher lock (closes #16)
 
 ### 📚 Documentation
 

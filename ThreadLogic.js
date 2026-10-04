@@ -392,6 +392,23 @@ function parseState(raw) {
   }
 }
 
+// The summaries a panel dismissal should also clear from the live toast
+// stack. A thread's entries carry the same chat-app summary (or mail
+// subject), which is what the daemon's dismiss IPC matches on; empties and
+// duplicates are dropped so one conversation fires one call per live toast.
+function dismissSummaries(entries) {
+  var seen = {}
+  var out = []
+  var list = Array.isArray(entries) ? entries : []
+  for (var i = 0; i < list.length; i++) {
+    var summary = String((list[i] && list[i].summary) || "").trim()
+    if (!summary || seen[summary]) continue
+    seen[summary] = true
+    out.push(summary)
+  }
+  return out
+}
+
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     hintValue: hintValue,
@@ -401,6 +418,7 @@ if (typeof module !== "undefined" && module.exports) {
     entryKey: entryKey,
     firstLink: firstLink,
     canInvokeLive: canInvokeLive,
+    dismissSummaries: dismissSummaries,
     hostOf: hostOf,
     sourceHost: sourceHost,
     isWebOrigin: isWebOrigin,

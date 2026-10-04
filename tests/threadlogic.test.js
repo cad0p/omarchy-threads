@@ -28,6 +28,19 @@ test("baseName returns the executable name", () => {
   assert.strictEqual(T.baseName(""), "")
 })
 
+test("dismissSummaries dedupes and trims summaries for the dismiss IPC", () => {
+  assert.deepStrictEqual(
+    T.dismissSummaries([
+      { summary: "Family Chat" },
+      { summary: "  Family Chat  " },
+      { summary: "" },
+      { summary: "Standup" },
+      null
+    ]),
+    ["Family Chat", "Standup"])
+  assert.deepStrictEqual(T.dismissSummaries(undefined), [])
+})
+
 test("threadFor prefers x-dunst-stack-tag and records its source", () => {
   const thread = T.threadFor({
     app: "WhatsApp",

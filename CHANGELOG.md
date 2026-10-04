@@ -19,6 +19,7 @@ All notable changes to this project will be documented in this file.
 - Require XDG_RUNTIME_DIR for the watcher lock (closes #16)
 - Focus the sending window when a panel click falls back (closes #18)
 - Pass the entry JSON to the store and jq on stdin (closes #21)
+- Dismiss live toasts by id and pass the thread key on stdin (closes #23)
 
 ### 📚 Documentation
 

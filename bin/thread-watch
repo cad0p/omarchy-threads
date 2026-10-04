@@ -122,8 +122,10 @@ slug_for_host() {
 }
 
 # First installed web app whose Name brand matches the host. Prints one
-# tab-separated record: <Icon= or empty>, chrome-<app-id>-Default, and the
-# entry's StartupWMClass when it differs. The wmClass is derived because the
+# tab-separated record: <Icon= or ->, chrome-<app-id>-Default, and the
+# entry's StartupWMClass when it differs. The leading field uses a `-`
+# sentinel when empty because IFS treats a leading tab as whitespace and
+# would drop the field, shifting the rest. The wmClass is derived because the
 # live Chromium window class is chrome-<app-id>-Default while the entries
 # declare StartupWMClass=crx_<app-id>, which never matches. Returns 0 with no
 # output when nothing matches.
@@ -179,7 +181,7 @@ desktop_match_for_host() { # <host>
       fi
       # Keep the classes from the first match even without a usable icon, but
       # a later entry with a real icon still wins the icon.
-      [[ -n $first_iconless ]] || first_iconless=$(printf '%s\t%s\t%s' "" "$wmclass" "$startup")
+      [[ -n $first_iconless ]] || first_iconless=$(printf '%s\t%s\t%s' "-" "$wmclass" "$startup")
     done
   done
   [[ -n $first_iconless ]] && printf '%s\n' "$first_iconless"
@@ -196,9 +198,11 @@ write_focus_sidecar() { # <cache-path> <wmClass> <startupWmClass>
 }
 
 # Prints "<wmClass>\t<startupWmClass>" for the event's host, or nothing when
-# no installed web app matches. An existing sidecar is authoritative; when
-# an icon is cached without one (icons cached before this existed), run the
-# desktop match once and write it. Icon problems never suppress the classes.
+# no installed web app matches. An existing sidecar is authoritative for the
+# host until removed, so it goes stale if the installed web app's app-id
+# changes; a `-` wmClass marks the negative result. When an icon is cached
+# without a sidecar (icons cached before this existed), run the desktop match
+# once and write it. Icon problems never suppress the classes.
 resolve_focus() { # <host>
   local host=$1 slug cache sidecar wmclass startup match match_icon
   [[ -n $host ]] || return 0
@@ -208,11 +212,16 @@ resolve_focus() { # <host>
   sidecar=$cache.focus
   if [[ -f $sidecar ]]; then
     IFS=$'\t' read -r wmclass startup < "$sidecar" || true
+    [[ $wmclass == - ]] && return 0
     printf '%s\t%s' "$wmclass" "$startup"
     return 0
   fi
   match=$(desktop_match_for_host "$host")
-  [[ -n $match ]] || return 0
+  if [[ -z $match ]]; then
+    # Negative marker: skip the desktop scan on later events for this host.
+    write_focus_sidecar "$cache" "-" "-"
+    return 0
+  fi
   IFS=$'\t' read -r match_icon wmclass startup <<<"$match"
   write_focus_sidecar "$cache" "$wmclass" "$startup"
   printf '%s\t%s' "$wmclass" "$startup"
@@ -256,6 +265,7 @@ resolve_icon() { # <parsed event JSON>
     match=$(desktop_match_for_host "$host")
     if [[ -n $match ]]; then
       IFS=$'\t' read -r match_icon wmclass startup <<<"$match"
+      [[ $match_icon == - ]] && match_icon=""
       src=$match_icon
     fi
     if [[ -z $src && -n $app_icon && -f $app_icon && $app_icon != /tmp/org.chromium.* ]]; then

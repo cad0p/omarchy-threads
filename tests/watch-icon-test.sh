@@ -161,6 +161,37 @@ check "pre-sidecar icon cache is backfilled" \
   "chrome-jnpecgipniidlgicjocehkhajgdnjekh-Default" "$(jq -r '.wmClass' <<<"$out")"
 [[ -f $focus_sidecar ]] || fail "sidecar was not rewritten for a pre-sidecar icon cache"
 
+# --- theme-icon matching entry: no field shift, appIcon fallback applies -----
+# A matching entry whose Icon= is a theme name (not an absolute path) must
+# still yield the classes; the icon falls back to the non-chromium appIcon.
+cat > "$HOME/.local/share/applications/tuta.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Tuta Mail
+Icon=tuta
+StartupWMClass=crx_abfghijklmnopabcdefghijklmnopq
+Exec=/opt/helium-browser-bin/helium-wrapper --profile-directory=Default --app-id=abfghijklmnopabcdefghijklmnopq
+EOF
+state7=$tmp/state7
+line=$(notify_line "New mail https://mail.tuta.com/inbox" "Tuta Mail" "" "$png")
+out=$(emit "$state7" "$line")
+check "theme icon does not shift the derived wmClass" \
+  "chrome-abfghijklmnopabcdefghijklmnopq-Default" "$(jq -r '.wmClass' <<<"$out")"
+check "theme icon does not shift StartupWMClass" \
+  "crx_abfghijklmnopabcdefghijklmnopq" "$(jq -r '.startupWmClass' <<<"$out")"
+check "theme-icon entry keeps the non-chromium appIcon fallback" \
+  "$state7/omarchy/thread-center/icons/mail.tuta.com.png" "$(jq -r '.icon' <<<"$out")"
+cmp -s "$png" "$state7/omarchy/thread-center/icons/mail.tuta.com.png" \
+  || fail "appIcon fallback content differs from the source"
+
+# cache hit: the sidecar written from the theme-icon entry carries the classes
+line=$(notify_line "Second https://mail.tuta.com/inbox" "Tuta Mail" "$other")
+out=$(emit "$state7" "$line")
+check "theme-icon sidecar still yields wmClass on a cache hit" \
+  "chrome-abfghijklmnopabcdefghijklmnopq-Default" "$(jq -r '.wmClass' <<<"$out")"
+check "theme-icon sidecar still yields StartupWMClass on a cache hit" \
+  "crx_abfghijklmnopabcdefghijklmnopq" "$(jq -r '.startupWmClass' <<<"$out")"
+
 # --- no URL in body or summary: no icon, and no cache dir created ------------
 state3=$tmp/state3
 line=$(notify_line "just text, no link" "Helium" "$png")

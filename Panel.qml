@@ -110,18 +110,18 @@ Panel {
 
   function removeEntry(key) {
     var dismissed = entries.filter(function(e) { return e.key === key })
-    dismissLiveToasts(ThreadLogic.dismissSummaries(dismissed))
+    dismissLiveToasts(ThreadLogic.dismissIds(dismissed))
     entries = entries.filter(function(e) { return e.key !== key })
     queueStore(["remove", String(key)])
   }
 
   function removeThread(key) {
-    dismissLiveToasts(ThreadLogic.dismissSummaries(entries.filter(function(e) { return e.threadKey === key })))
+    dismissLiveToasts(ThreadLogic.dismissIds(entries.filter(function(e) { return e.threadKey === key })))
     entries = entries.filter(function(e) { return e.threadKey !== key })
     var next = {}
     for (var k in expanded) if (k !== key) next[k] = expanded[k]
     expanded = next
-    queueStore(["remove-thread", String(key)])
+    queueStore(["remove-thread"], null, String(key))
   }
 
   function clearAll() {
@@ -130,14 +130,15 @@ Panel {
     queueStore(["clear"])
   }
 
-  // Dismissing a conversation should take its live toasts off the screen too:
-  // the daemon matches on the summary, which is the chat name for web apps and
-  // the subject for mail. A miss answers "none" and costs nothing.
-  function dismissLiveToasts(summaries) {
-    if (!summaries || summaries.length === 0) return
+  // Dismissing a conversation should take its live toasts off the screen too.
+  // Each card is closed by the non-sensitive daemon id the archive recorded,
+  // so the conversation name never travels through process arguments. A daemon
+  // without dismissId answers nothing and the toasts expire on their own.
+  function dismissLiveToasts(ids) {
+    if (!ids || ids.length === 0) return
     var bin = omarchyPath ? omarchyPath + "/bin/omarchy-shell" : "omarchy-shell"
-    for (var i = 0; i < summaries.length; i++)
-      Quickshell.execDetached([bin, "notifications", "dismiss", summaries[i]])
+    for (var i = 0; i < ids.length; i++)
+      Quickshell.execDetached([bin, "notifications", "dismissId", String(ids[i])])
   }
 
   // Focus the sending window, trying each target in order: web source host

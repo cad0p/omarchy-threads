@@ -422,15 +422,18 @@ function parseState(raw) {
 // stack. A thread's entries carry the same chat-app summary (or mail
 // subject), which is what the daemon's dismiss IPC matches on; empties and
 // duplicates are dropped so one conversation fires one call per live toast.
-function dismissSummaries(entries) {
+// Live cards are dismissed by the daemon id the archive already holds, so a
+// conversation name never travels through process arguments. Ids are positive
+// integers; anything else is skipped rather than guessed at.
+function dismissIds(entries) {
   var seen = {}
   var out = []
   var list = Array.isArray(entries) ? entries : []
   for (var i = 0; i < list.length; i++) {
-    var summary = String((list[i] && list[i].summary) || "").trim()
-    if (!summary || seen[summary]) continue
-    seen[summary] = true
-    out.push(summary)
+    var id = Number((list[i] && list[i].id) || 0)
+    if (!isFinite(id) || id <= 0 || Math.floor(id) !== id || seen[id]) continue
+    seen[id] = true
+    out.push(id)
   }
   return out
 }
@@ -444,7 +447,7 @@ if (typeof module !== "undefined" && module.exports) {
     entryKey: entryKey,
     firstLink: firstLink,
     canInvokeLive: canInvokeLive,
-    dismissSummaries: dismissSummaries,
+    dismissIds: dismissIds,
     hostOf: hostOf,
     sourceHost: sourceHost,
     isWebOrigin: isWebOrigin,

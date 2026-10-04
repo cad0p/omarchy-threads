@@ -18,7 +18,8 @@
 #                                 are per-connection, so the caller name
 #                                 disambiguates)
 #   remove <key>                  permanently drop one entry
-#   remove-thread <threadKey>     permanently drop one conversation
+#   remove-thread <stdin: key>    permanently drop one conversation (the key
+#                                 is summary-derived, so it never enters argv)
 #   clear                         empty the archive
 #   mark-read [timestamp-ms]      persist the read watermark
 #   prune                         apply retention to the existing archive
@@ -152,10 +153,15 @@ remove)
     jq -c --arg key "$key" 'map(select((.key // "") != $key))' | write_archive
   ;;
 remove-thread)
-  thread_key=${1:-}
-  [[ -n $thread_key ]] || { echo "thread-store: remove-thread needs a thread key" >&2; exit 2; }
+  # The key is summary-derived (conversation names), so it arrives on stdin
+  # and reaches jq through a private fd, never through argv.
+  [[ $# -eq 0 ]] || { echo "thread-store: remove-thread takes the thread key on stdin" >&2; exit 2; }
+  thread_key=$(cat)
+  thread_key=${thread_key%$'\n'}
+  [[ -n $thread_key ]] || { echo "thread-store: remove-thread needs a thread key on stdin" >&2; exit 2; }
   load_archive |
-    jq -c --arg tk "$thread_key" 'map(select((.threadKey // "") != $tk))' | write_archive
+    jq -c --slurpfile tk <(printf '%s' "$thread_key" | jq -Rs .) \
+      'map(select((.threadKey // "") != $tk[0]))' | write_archive
   ;;
 clear)
   echo '[]' | write_archive
@@ -179,7 +185,7 @@ count)
   load_archive | jq 'length'
   ;;
 *)
-  echo "Usage: thread-store {load|meta|upsert <stdin-json>|set-id <sender> <cookie> <id>|remove <key>|remove-thread <threadKey>|clear|mark-read [ts]|prune|count}" >&2
+  echo "Usage: thread-store {load|meta|upsert <stdin-json>|set-id <sender> <cookie> <id>|remove <key>|remove-thread <stdin-key>|clear|mark-read [ts]|prune|count}" >&2
   exit 2
   ;;
 esac

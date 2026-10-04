@@ -47,10 +47,13 @@ including DND-silenced ones, and archives the full payload.
 - **Omarchy 4** — the Quickshell shell; Threads is a bar widget
   (`cad0p.thread-center`).
 - **omapager, recommended** — with
-  [`njpatel.omapager`](https://github.com/njpatel/omapager) running, entries
+  [`njpatel.omapager`](https://github.com/cad0p/omapager) running, entries
   can fire the sender's live action. Everything else works beside the stock
   `omarchy.notifications` daemon too; without a live toast, activation falls
-  back to the archived link or focuses the sending app.
+  back to the archived link or focuses the sending app. Until the fixes land
+  upstream, install [the fork's `integration` branch](https://github.com/cad0p/omapager/tree/integration)
+  (live-action invoke, retained actions, web icons, and Tab navigation are all
+  in [open PRs](https://github.com/ryanrhughes/omapager/pulls)).
 
 ## Install
 
@@ -65,6 +68,17 @@ For local development, symlink the checkout into the plugin directory:
 ln -sfn "$PWD" ~/.config/omarchy/plugins/cad0p.thread-center
 omarchy plugin validate .
 omarchy plugin enable cad0p.thread-center
+omarchy restart shell
+```
+
+### omapager (recommended)
+
+While the deep-link work is in upstream PRs, use the fork's `integration`
+branch:
+
+```bash
+omarchy plugin add https://github.com/cad0p/omapager.git --enable
+git -C ~/.config/omarchy/plugins/njpatel.omapager checkout integration
 omarchy restart shell
 ```
 

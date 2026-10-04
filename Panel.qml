@@ -261,8 +261,8 @@ Panel {
   property var storeQueue: []
   property var runningStoreJob: null
 
-  function queueStore(args, done) {
-    storeQueue = storeQueue.concat([{ args: args, done: done || null }])
+  function queueStore(args, done, payload) {
+    storeQueue = storeQueue.concat([{ args: args, done: done || null, payload: payload || "" }])
     runStoreJob()
   }
 
@@ -271,7 +271,15 @@ Panel {
     runningStoreJob = storeQueue[0]
     storeQueue = storeQueue.slice(1)
     storeProc.command = [storeBin].concat(runningStoreJob.args)
+    // The entry travels on stdin: /proc/<pid>/cmdline is readable by other
+    // local users, and notification bodies are private. Closing stdin after
+    // the write gives the store its EOF.
+    storeProc.stdinEnabled = !!runningStoreJob.payload
     storeProc.running = true
+    if (runningStoreJob.payload) {
+      storeProc.write(runningStoreJob.payload)
+      storeProc.stdinEnabled = false
+    }
   }
 
   Process {
@@ -302,7 +310,7 @@ Panel {
       var next = ThreadLogic.applyEvent(entries, event, { fallbackGrouping: fallbackGrouping })
       var entry = next[0]
       entries = next
-      queueStore(["upsert", JSON.stringify(entry)])
+      queueStore(["upsert"], null, JSON.stringify(entry))
       // Watching the panel counts as reading: the badge must not grow under
       // the user's eyes for notifications they are looking at right now.
       if (opened) markRead()

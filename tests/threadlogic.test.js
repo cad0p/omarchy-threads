@@ -254,6 +254,33 @@ test("focusTargets tries host, derived wmClass, StartupWMClass, then app id", ()
   }), ["web.whatsapp.com"])
 })
 
+test("borrowFocus fills focus classes from a same-host sibling", () => {
+  const old = { key: "a", link: "https://mail.proton.me/", app: "Helium" }
+  const fresh = { key: "b", source: "mail.proton.me",
+    wmClass: "chrome-jnpecgipniidlgicjocehkhajgdnjekh-Default",
+    startupWmClass: "crx_jnpecgipniidlgicjocehkhajgdnjekh" }
+  // An old row takes the classes of a same-host sibling...
+  assert.deepStrictEqual(T.borrowFocus(old, [fresh]), {
+    key: "a", link: "https://mail.proton.me/", app: "Helium",
+    wmClass: "chrome-jnpecgipniidlgicjocehkhajgdnjekh-Default",
+    startupWmClass: "crx_jnpecgipniidlgicjocehkhajgdnjekh"
+  })
+  // ...and the borrowed entry focuses the PWA class before the browser app.
+  assert.deepStrictEqual(T.focusTargets(T.borrowFocus(old, [fresh])), [
+    "mail.proton.me",
+    "chrome-jnpecgipniidlgicjocehkhajgdnjekh-Default",
+    "crx_jnpecgipniidlgicjocehkhajgdnjekh",
+    "Helium"
+  ])
+  // A row that already has classes is returned untouched.
+  assert.strictEqual(T.borrowFocus(fresh, [old]), fresh)
+  // A different host never lends its classes.
+  const whatsapp = { key: "c", source: "web.whatsapp.com", wmClass: "chrome-hnpf-Default" }
+  assert.strictEqual(T.borrowFocus(old, [whatsapp]), old)
+  assert.strictEqual(T.borrowFocus(null, [fresh]), null)
+  assert.strictEqual(T.borrowFocus(old, null), old)
+})
+
 test("applyEvent carries source, wmClass and startupWmClass", () => {
   const list = T.applyEvent([], {
     timestamp: 1000, cookie: 1, app: "Helium", source: "mail.proton.me",

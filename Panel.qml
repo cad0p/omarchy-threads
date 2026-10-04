@@ -144,7 +144,9 @@ Panel {
   // first, then the app id. Each step only runs when the previous one found
   // no window. Returns false when the entry has nothing to focus.
   function focusEntryWindow(entry) {
-    var targets = ThreadLogic.focusTargets(entry)
+    // Rows archived before the watcher recorded focus classes borrow them
+    // from a same-host sibling, so old clicks reach the PWA too.
+    var targets = ThreadLogic.focusTargets(ThreadLogic.borrowFocus(entry, entries))
     if (targets.length === 0) return false
     // Never bail on the path alone: the helper is also on PATH via
     // /usr/share/omarchy/bin, so only "nothing to focus" stops the attempt.

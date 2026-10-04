@@ -355,6 +355,27 @@ function focusTargets(entry) {
   return targets
 }
 
+// Rows archived before the watcher recorded focus classes still know their
+// web host (from `source` or the archived link). Borrow the focus classes
+// from a sibling row for the same host, so clicking an old notification
+// focuses the PWA instead of falling back to the browser window. A different
+// host never lends its classes, so a WhatsApp row can't focus Proton Mail.
+function borrowFocus(entry, entries) {
+  if (!entry || entry.wmClass || entry.startupWmClass) return entry
+  var host = sourceHost(entry) || hostOf(String(entry.link || "") || firstLink(entry))
+  if (!host || !Array.isArray(entries)) return entry
+  for (var i = 0; i < entries.length; i++) {
+    var peer = entries[i]
+    if (!peer || peer === entry || !peer.wmClass) continue
+    if (sourceHost(peer) !== host) continue
+    return Object.assign({}, entry, {
+      wmClass: peer.wmClass,
+      startupWmClass: peer.startupWmClass || ""
+    })
+  }
+  return entry
+}
+
 function plainBody(body) {
   return stripOriginLead(body)
     .replace(/<br\s*\/?>/gi, "\n")
@@ -428,6 +449,7 @@ if (typeof module !== "undefined" && module.exports) {
     sourceHost: sourceHost,
     isWebOrigin: isWebOrigin,
     focusTargets: focusTargets,
+    borrowFocus: borrowFocus,
     applyEvent: applyEvent,
     applyId: applyId,
     prune: prune,

@@ -12,7 +12,7 @@
 # Commands:
 #   load                          print the archive ([] when empty)
 #   meta                          print state.json ({} when empty)
-#   upsert <entry-json>           prepend one entry, drop the notification it
+#   upsert <stdin: entry-json>    prepend one entry, drop the notification it
 #                                 replaces (replacesId/id), prune retention
 #   set-id <sender> <cookie> <id>  backfill the daemon-assigned id (cookies
 #                                 are per-connection, so the caller name
@@ -103,15 +103,22 @@ meta)
   load_meta
   ;;
 upsert)
-  json=${1:-}
-  [[ -n $json ]] || { echo "thread-store: upsert needs an entry JSON argument" >&2; exit 2; }
-  load_archive |
-    jq -c --argjson e "$json" --argjson now "$(now_ms)" \
+  # The entry arrives on stdin, never in argv: /proc/<pid>/cmdline is readable
+  # by other local users, and a notification body is private. jq sees it on
+  # stdin too, so it never lands in jq's arguments either.
+  entry=$(jq -cs '.[0]' 2>/dev/null) || entry=
+  if [[ -z $entry || $entry == null ]]; then
+    echo "thread-store: upsert needs a JSON entry on stdin" >&2
+    exit 2
+  fi
+  { printf '%s\n' "$entry"; load_archive; } |
+    jq -cs --argjson now "$(now_ms)" \
       --argjson keepDays "$keep_days" --argjson maxEntries "$max_entries" '
-      ($e + {key: ($e.key //
+      .[0] as $e
+      | ($e + {key: ($e.key //
         ((($e.timestamp // 0) | tostring) + "-" + ((($e.cookie // $e.id // 0) | tostring))))}) as $entry
       | ([$entry] + [
-          .[] | select(
+          .[1][] | select(
             (
               ((($entry.replacesId // 0) > 0) and ((.id // 0) == ($entry.replacesId // 0)))
               or
@@ -172,7 +179,7 @@ count)
   load_archive | jq 'length'
   ;;
 *)
-  echo "Usage: thread-store {load|meta|upsert <json>|set-id <sender> <cookie> <id>|remove <key>|remove-thread <threadKey>|clear|mark-read [ts]|prune|count}" >&2
+  echo "Usage: thread-store {load|meta|upsert <stdin-json>|set-id <sender> <cookie> <id>|remove <key>|remove-thread <threadKey>|clear|mark-read [ts]|prune|count}" >&2
   exit 2
   ;;
 esac

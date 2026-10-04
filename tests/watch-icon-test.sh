@@ -71,6 +71,8 @@ state1=$tmp/state1
 line=$(notify_line "New message https://user:pass@web.whatsapp.com:8443/chats/42" "WhatsApp" "$png")
 out=$(emit "$state1" "$line")
 check "notify event emitted" "notify" "$(jq -r '.event' <<<"$out")"
+check "source host exported for the URL (userinfo and port stripped)" \
+  "web.whatsapp.com" "$(jq -r '.source' <<<"$out")"
 icon=$(jq -r '.icon' <<<"$out")
 check "image-path hint cached under the URL host" \
   "$state1/omarchy/thread-center/icons/web.whatsapp.com.png" "$icon"
@@ -125,6 +127,7 @@ state3=$tmp/state3
 line=$(notify_line "just text, no link" "Helium" "$png")
 out=$(emit "$state3" "$line")
 check "no URL leaves icon empty" "" "$(jq -r '.icon' <<<"$out")"
+check "no URL leaves source empty" "" "$(jq -r '.source' <<<"$out")"
 [[ ! -e $state3/omarchy/thread-center/icons ]] || fail "icons dir created without a host"
 
 # --- Chromium temp badge as appIcon is never identity ------------------------
@@ -133,6 +136,8 @@ cp "$png" "$badge_dir/logo.png"
 line=$(notify_line "Ping https://chat.example.com/room" "Helium" "" "$badge_dir/logo.png")
 out=$(emit "$state3" "$line")
 check "chromium temp badge is refused" "" "$(jq -r '.icon' <<<"$out")"
+check "source is exported even when the icon is refused" \
+  "chat.example.com" "$(jq -r '.source' <<<"$out")"
 
 # --- a real, non-browser appIcon is a valid fallback -------------------------
 state4=$tmp/state4

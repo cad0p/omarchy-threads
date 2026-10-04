@@ -298,6 +298,50 @@ function canInvokeLive(entry) {
   return Array.isArray(actions) && actions.indexOf("default") !== -1
 }
 
+// Lowercase host extracted from a bare host or a full URL, without userinfo
+// or port (""). Shared by the web-source helpers below.
+function hostOf(value) {
+  var raw = String(value || "").trim()
+  if (!raw) return ""
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(raw)) raw = "https://" + raw
+  var authority = raw.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").split(/[/?#]/)[0]
+  var at = authority.lastIndexOf("@")
+  if (at >= 0) authority = authority.slice(at + 1)
+  return authority.split(":")[0].toLowerCase()
+}
+
+// The watcher's `source` field: the bare host of the first URL in the
+// notification (empty for non-web senders). Normalized so older archives —
+// or a hand-written entry carrying a full URL — still compare equal.
+function sourceHost(entry) {
+  return hostOf(entry && entry.source)
+}
+
+// True when the entry's durable link is nothing but the web origin recorded
+// in `source`: Chromium sends the page origin as a lead paragraph, so
+// opening that link only reloads the PWA at its root. A link with a path or
+// query is a real deep link and must still open normally.
+function isWebOrigin(entry) {
+  var host = sourceHost(entry)
+  if (!host) return false
+  var link = String((entry && entry.link) || "") || firstLink(entry)
+  if (!link) return true
+  if (hostOf(link) !== host) return false
+  return /^[a-z][a-z0-9+.-]*:\/\/[^/?#]+\/?$/i.test(link)
+}
+
+// Ordered focus patterns for the sending window: the web source host first
+// (it matches the PWA window class, e.g. web.whatsapp.com for
+// chrome-web.whatsapp.com__-Default), then the app id as the second try.
+function focusTargets(entry) {
+  var targets = []
+  var host = sourceHost(entry)
+  var app = String((entry && (entry.appId || entry.app)) || "")
+  if (host) targets.push(host)
+  if (app && app !== host) targets.push(app)
+  return targets
+}
+
 function plainBody(body) {
   return stripOriginLead(body)
     .replace(/<br\s*\/?>/gi, "\n")
@@ -349,6 +393,10 @@ if (typeof module !== "undefined" && module.exports) {
     entryKey: entryKey,
     firstLink: firstLink,
     canInvokeLive: canInvokeLive,
+    hostOf: hostOf,
+    sourceHost: sourceHost,
+    isWebOrigin: isWebOrigin,
+    focusTargets: focusTargets,
     applyEvent: applyEvent,
     applyId: applyId,
     prune: prune,

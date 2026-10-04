@@ -28,17 +28,20 @@ test("baseName returns the executable name", () => {
   assert.strictEqual(T.baseName(""), "")
 })
 
-test("dismissSummaries dedupes and trims summaries for the dismiss IPC", () => {
+test("dismissIds dedupes positive daemon ids for the dismiss IPC", () => {
   assert.deepStrictEqual(
-    T.dismissSummaries([
-      { summary: "Family Chat" },
-      { summary: "  Family Chat  " },
-      { summary: "" },
-      { summary: "Standup" },
+    T.dismissIds([
+      { id: 4, summary: "Family Chat" },
+      { id: 4, summary: "Family Chat" },
+      { id: 7, summary: "Standup" },
+      { id: 0 },
+      { id: -3 },
+      { id: 2.5 },
+      { summary: "no id" },
       null
     ]),
-    ["Family Chat", "Standup"])
-  assert.deepStrictEqual(T.dismissSummaries(undefined), [])
+    [4, 7])
+  assert.deepStrictEqual(T.dismissIds(undefined), [])
 })
 
 test("threadFor prefers x-dunst-stack-tag and records its source", () => {

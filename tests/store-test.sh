@@ -65,8 +65,9 @@ check "the right one stayed" "helium|s|New email" "$($store load | jq -r '.[0].t
 
 # --- remove-thread drops every entry of the conversation --------------------
 upsert "{\"timestamp\":$((now + 4)),\"cookie\":5,\"id\":0,\"app\":\"Slack\",\"summary\":\"#general\",\"threadKey\":\"slack|s|#general\",\"threadLabel\":\"#general\",\"threadSource\":\"summary\"}"
-$store remove-thread "slack|s|#general"
+printf '%s' "slack|s|#general" | $store remove-thread
 check "remove-thread cleared the conversation" "1" "$($store count)"
+$store remove-thread "slack|s|#general" >/dev/null 2>&1 && fail "remove-thread accepted an argv key" || true
 
 # --- retention --------------------------------------------------------------
 old=$((now - 40 * 86400000))

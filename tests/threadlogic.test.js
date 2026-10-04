@@ -200,9 +200,12 @@ test("isWebOrigin is true only for a bare origin link", () => {
   // A real per-conversation deep link must keep opening normally.
   assert.strictEqual(T.isWebOrigin({ source: "web.whatsapp.com", link: "https://web.whatsapp.com/chats/42" }), false)
   assert.strictEqual(T.isWebOrigin({ source: "mail.proton.me", link: "https://mail.proton.me/u/0/inbox" }), false)
-  // A link on a different host, or no source at all, is not a web origin.
+  // A link on a different host is not this sender's web origin.
   assert.strictEqual(T.isWebOrigin({ source: "web.whatsapp.com", link: "https://example.com/" }), false)
-  assert.strictEqual(T.isWebOrigin({ link: "https://web.whatsapp.com/" }), false)
+  // Older rows carry no `source`; a bare origin still names the web app.
+  assert.strictEqual(T.isWebOrigin({ link: "https://web.whatsapp.com/" }), true)
+  assert.strictEqual(T.isWebOrigin({ body: '<a href="https://web.whatsapp.com/">web.whatsapp.com</a>' }), true)
+  assert.strictEqual(T.isWebOrigin({ link: "https://mail.proton.me/u/0/inbox" }), false)
   // A web sender whose archived link is missing is still a web sender.
   assert.strictEqual(T.isWebOrigin({ source: "web.whatsapp.com" }), true)
   assert.strictEqual(T.isWebOrigin(null), false)
@@ -215,6 +218,10 @@ test("focusTargets tries host, derived wmClass, StartupWMClass, then app id", ()
   assert.deepStrictEqual(T.focusTargets({ source: "web.whatsapp.com", app: "Helium" }),
     ["web.whatsapp.com", "Helium"])
   assert.deepStrictEqual(T.focusTargets({ app: "Slack" }), ["Slack"])
+  // Rows without `source` still focus the link's host first.
+  assert.deepStrictEqual(T.focusTargets({ link: "https://mail.proton.me/" }), ["mail.proton.me"])
+  assert.deepStrictEqual(T.focusTargets({ link: "https://mail.proton.me/u/0/inbox", app: "Helium" }),
+    ["mail.proton.me", "Helium"])
   assert.deepStrictEqual(T.focusTargets({ source: "web.whatsapp.com", appId: "web.whatsapp.com" }),
     ["web.whatsapp.com"])
   assert.deepStrictEqual(T.focusTargets({ source: "web.whatsapp.com" }), ["web.whatsapp.com"])
